@@ -49,14 +49,13 @@ if generar:
         st.error("⚠️ Debes seleccionar al menos un tema.")
         st.stop()
 
-    # Convertir el texto de festivos a fechas reales para el motor
     fechas_excluidas = []
     if fechas_excluidas_input:
         for f in fechas_excluidas_input.split(','):
             try:
                 fechas_excluidas.append(datetime.strptime(f.strip(), "%d/%m/%Y").date())
             except:
-                pass # Si hay error tipográfico, lo ignora
+                pass 
 
     # A) PROCESAR EL ARCHIVO SUBIDO
     tareas_completadas = {}
@@ -75,7 +74,7 @@ if generar:
         except Exception as e:
             st.error("Error al leer el archivo. Asegúrate de que es el .csv original y está separado por punto y coma.")
 
-    # B) EXTRAER HUECOS REALES FUTUROS (Saltando los festivos)
+    # B) EXTRAER HUECOS REALES FUTUROS
     huecos = []
     fecha_actual = fecha_inicio
     while fecha_actual <= fecha_fin:
@@ -183,17 +182,45 @@ if generar:
 
         st.markdown(html_cal, unsafe_allow_html=True)
         
-        # F) BOTONES DE DESCARGA
-        html_export = f"<html><head><meta charset='utf-8'><title>Calendario Estudio</title>{html_cal}</head><body style='font-family: sans-serif; padding: 20px;' onload='window.print()'><h1>Planificación de Estudio</h1>{html_cal}</body></html>"
+        # F) GENERAR ARCHIVO .ICS PARA GOOGLE CALENDAR
+        df_export = pd.DataFrame(tareas_para_csv)
+        df_export['Fecha_dt'] = pd.to_datetime(df_export['Fecha'], format="%d/%m/%Y")
+        df_export = df_export.sort_values('Fecha_dt').drop(columns=['Fecha_dt'])
         
-        col1, col2 = st.columns(2)
-        with col1:
-            st.download_button(label="📥 Descargar Calendario para PDF", data=html_export, file_name="calendario_estudio.html", mime="text/html")
-        
-        with col2:
-            df_export = pd.DataFrame(tareas_para_csv)
-            df_export['Fecha_dt'] = pd.to_datetime(df_export['Fecha'], format="%d/%m/%Y")
-            df_export = df_export.sort_values('Fecha_dt').drop(columns=['Fecha_dt'])
-            csv_data = df_export.to_csv(index=False, sep=';').encode('utf-8-sig') 
+        ical_content = "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Planificador Estudio//ES\n"
+        for idx, row in df_export.iterrows():
+            if row['Turno'] == '---': continue # Ignoramos tareas ya pasadas que suben en el CSV
             
-            st.download_button(label="📊 Descargar Excel de Seguimiento (.csv)", data=csv_data, file_name="seguimiento_estudio.csv", mime="text/csv")
+            # Asignamos horas base según el turno
+            if row['Turno'] == 'Mañana':
+                t_start = "090000"
+                t_end = "130000"
+            else:
+                t_start = "160000"
+                t_end = "200000"
+                
+            # Formateamos la fecha a YYYYMMDD para el iCal
+            d_parts = row['Fecha'].split('/')
+            d_str = f"{d_parts[2]}{d_parts[1]}{d_parts[0]}"
+            uid = f"{d_str}{t_start}-{row['Tarea'].replace(' ', '')}@planificador"
+            
+            ical_content += "BEGIN:VEVENT\n"
+            ical_content += f"UID:{uid}\n"
+            ical_content += f"DTSTART:{d_str}T{t_start}\n"
+            ical_content += f"DTEND:{d_str}T{t_end}\n"
+            ical_content += f"SUMMARY:📚 {row['Tarea']}\n"
+            ical_content += f"DESCRIPTION:Turno de {row['Turno']}\n"
+            ical_content += "END:VEVENT\n"
+        ical_content += "END:VCALENDAR"
+
+        # G) MOSTRAR LOS 3 BOTONES DE DESCARGA
+        st.markdown("### Exportar Planificación")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            html_export = f"<html><head><meta charset='utf-8'><title>Calendario Estudio</title>{html_cal}</head><body style='font-family: sans-serif; padding: 20px;' onload='window.print()'><h1>Planificación de Estudio</h1>{html_cal}</body></html>"
+            st.download_button("📥 PDF (Imprimir)", data=html_export, file_name="calendario_estudio.html", mime="text/html", use_container_width=True)
+        with col2:
+            csv_data = df_export.to_csv(index=False, sep=';').encode('utf-8-sig') 
+            st.download_button("📊 Excel (.csv)", data=csv_data, file_name="seguimiento_estudio.csv", mime="text/csv", use_container_width=True)
+        with col3:
+            st.download_button("📅 Google Calendar (.ics)", data=ical_content.encode('utf-8'), file_name="calendario_estudio.ics", mime="text/calendar", use_container_width=True)
