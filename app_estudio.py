@@ -3,7 +3,7 @@ import pandas as pd
 import calendar
 from datetime import date, timedelta, datetime
 
-st.set_page_config(page_title="Planificador de Estudio", layout="wide")
+st.set_page_config(page_title="Planificador de Estudio", layout="wide", initial_sidebar_state="expanded")
 st.title("📚 Planificador de estudio")
 
 # --- PANEL LATERAL ---
