@@ -179,6 +179,6 @@ if generar:
             df_export = pd.DataFrame(tareas_para_csv)
             df_export['Fecha_dt'] = pd.to_datetime(df_export['Fecha'], format="%d/%m/%Y")
             df_export = df_export.sort_values('Fecha_dt').drop(columns=['Fecha_dt'])
-            csv_data = df_export.to_csv(index=False).encode('utf-8-sig') # utf-8-sig asegura que los acentos en Excel se vean bien
+            csv_data = df_export.to_csv(index=False, sep=';').encode('utf-8-sig') # utf-8-sig asegura que los acentos en Excel se vean bien
             
             st.download_button(label="📊 Descargar Excel de Seguimiento (.csv)", data=csv_data, file_name="seguimiento_estudio.csv", mime="text/csv")
