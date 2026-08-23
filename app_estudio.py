@@ -197,9 +197,15 @@ if generar:
     df_export = df_export.sort_values('Fecha_dt').drop(columns=['Fecha_dt'])
     csv_data = df_export.to_csv(index=False, sep=';').encode('utf-8-sig') 
     
-    # NUEVO: Generador .ics estricto (Añadido DTSTAMP y formato \r\n)
+    # NUEVO: Generador .ics limpio, a prueba de fallos para Google Calendar
     now_stamp = datetime.now().strftime("%Y%m%dT%H%M%SZ")
-    ical_content = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Planificador Estudio//ES\r\n"
+    lineas_ical = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Planificador Estudio//ES",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH"
+    ]
     
     for idx, row in df_export.iterrows():
         if row['Turno'] == '---': continue 
@@ -207,19 +213,27 @@ if generar:
             t_start, t_end = "090000", "130000"
         else:
             t_start, t_end = "160000", "200000"
+            
         d_parts = row['Fecha'].split('/')
         d_str = f"{d_parts[2]}{d_parts[1]}{d_parts[0]}"
-        uid = f"{d_str}{t_start}-{row['Tarea'].replace(' ', '')}@planificador"
         
-        ical_content += "BEGIN:VEVENT\r\n"
-        ical_content += f"UID:{uid}\r\n"
-        ical_content += f"DTSTAMP:{now_stamp}\r\n"
-        ical_content += f"DTSTART:{d_str}T{t_start}\r\n"
-        ical_content += f"DTEND:{d_str}T{t_end}\r\n"
-        ical_content += f"SUMMARY:📚 {row['Tarea']}\r\n"
-        ical_content += f"DESCRIPTION:Turno de {row['Turno']}\r\n"
-        ical_content += "END:VEVENT\r\n"
-    ical_content += "END:VCALENDAR\r\n"
+        # Identificador 100% libre de tildes y caracteres especiales
+        uid = f"evento-{idx}-{d_str}-{t_start}@planificador"
+        
+        lineas_ical.extend([
+            "BEGIN:VEVENT",
+            f"UID:{uid}",
+            f"DTSTAMP:{now_stamp}",
+            f"DTSTART:{d_str}T{t_start}",
+            f"DTEND:{d_str}T{t_end}",
+            f"SUMMARY:📚 {row['Tarea']}",
+            f"DESCRIPTION:Turno de {row['Turno']}",
+            "END:VEVENT"
+        ])
+        
+    lineas_ical.append("END:VCALENDAR")
+    # Los archivos ics requieren estrictamente saltos de línea con \r\n
+    ical_content = "\r\n".join(lineas_ical) + "\r\n"
 
     # G) RENDERIZADO VISUAL
     st.markdown("### Exportar Planificación")
