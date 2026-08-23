@@ -14,7 +14,6 @@ with st.sidebar:
     
     st.header("2. Parámetros del Alumno")
     
-    # NUEVO: Selector para elegir entre temas concretos o cantidad
     modo_seleccion = st.radio("¿Cómo prefieres indicar los temas?", ["Elegir temas concretos", "Por cantidad de temas"])
     
     if modo_seleccion == "Elegir temas concretos":
@@ -198,7 +197,10 @@ if generar:
     df_export = df_export.sort_values('Fecha_dt').drop(columns=['Fecha_dt'])
     csv_data = df_export.to_csv(index=False, sep=';').encode('utf-8-sig') 
     
-    ical_content = "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Planificador Estudio//ES\n"
+    # NUEVO: Generador .ics estricto (Añadido DTSTAMP y formato \r\n)
+    now_stamp = datetime.now().strftime("%Y%m%dT%H%M%SZ")
+    ical_content = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Planificador Estudio//ES\r\n"
+    
     for idx, row in df_export.iterrows():
         if row['Turno'] == '---': continue 
         if row['Turno'] == 'Mañana':
@@ -209,14 +211,15 @@ if generar:
         d_str = f"{d_parts[2]}{d_parts[1]}{d_parts[0]}"
         uid = f"{d_str}{t_start}-{row['Tarea'].replace(' ', '')}@planificador"
         
-        ical_content += "BEGIN:VEVENT\n"
-        ical_content += f"UID:{uid}\n"
-        ical_content += f"DTSTART:{d_str}T{t_start}\n"
-        ical_content += f"DTEND:{d_str}T{t_end}\n"
-        ical_content += f"SUMMARY:📚 {row['Tarea']}\n"
-        ical_content += f"DESCRIPTION:Turno de {row['Turno']}\n"
-        ical_content += "END:VEVENT\n"
-    ical_content += "END:VCALENDAR"
+        ical_content += "BEGIN:VEVENT\r\n"
+        ical_content += f"UID:{uid}\r\n"
+        ical_content += f"DTSTAMP:{now_stamp}\r\n"
+        ical_content += f"DTSTART:{d_str}T{t_start}\r\n"
+        ical_content += f"DTEND:{d_str}T{t_end}\r\n"
+        ical_content += f"SUMMARY:📚 {row['Tarea']}\r\n"
+        ical_content += f"DESCRIPTION:Turno de {row['Turno']}\r\n"
+        ical_content += "END:VEVENT\r\n"
+    ical_content += "END:VCALENDAR\r\n"
 
     # G) RENDERIZADO VISUAL
     st.markdown("### Exportar Planificación")
