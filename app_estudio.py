@@ -4,7 +4,7 @@ import calendar
 from datetime import date, timedelta
 
 st.set_page_config(page_title="Calendario de Oposiciones", layout="wide")
-st.title("📚 Generador de Repaso Espaciado")
+st.title("📚 Calendario de estudio")
 
 # --- PANEL LATERAL ---
 with st.sidebar:
