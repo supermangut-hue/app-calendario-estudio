@@ -13,190 +13,6 @@ with st.sidebar:
     archivo_progreso = st.file_uploader("Archivo de seguimiento", type=["csv"])
     
     st.header("2. Parámetros del Alumno")
-    # NUEVO: Selector múltiple de temas
-    lista_completa = list(range(1, 75))
-    temas_seleccionados = st.multiselect(
-        "Selecciona los temas a estudiar:", 
-        options=lista_completa, 
-        default=[1, 2, 3, 4, 5] # Temas de ejemplo
-    )
-    num_temas = len(temas_seleccionados)
-
-    fecha_inicio = st.date_input("Fecha de inicio (o recalcular desde)", value=date.today())
-    fecha_fin = st.date_input("Fecha límite", value=date(2027, 6, 1))
-    
-    st.markdown("---")
-    st.subheader("3. Disponibilidad Semanal")
-    dias_semana = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
-    tabla_turnos = pd.DataFrame({
-        "Día": dias_semana,
-        "Mañana": [True, True, True, True, True, False, False],
-        "Tarde": [True, True, True, True, True, False, False]
-    })
-    
-    turnos_elegidos = st.data_editor(tabla_turnos, hide_index=True, use_container_width=True)
-    st.markdown("---")
-    generar = st.button("Generar / Recalcular Calendario", type="primary")
-
-# --- ALGORITMO PRINCIPAL ---
-if generar:
-    if num_temas == 0:
-        st.error("⚠️ Debes seleccionar al menos un tema.")
-        st.stop()
-
-    # A) PROCESAR EL ARCHIVO SUBIDO (Si existe)
-    tareas_completadas = {}
-    if archivo_progreso is not None:
-        try:
-            df_prog = pd.read_csv(archivo_progreso)
-            df_prog = df_prog[df_prog['Completado'].notna()] # Filtramos las marcadas
-            for index, row in df_prog.iterrows():
-                fecha_str = str(row['Fecha'])
-                try:
-                    f_obj = datetime.strptime(fecha_str, "%d/%m/%Y").date()
-                except:
-                    f_obj = fecha_inicio
-                tareas_completadas[row['Tarea']] = f_obj
-            st.success(f"📂 Archivo cargado: Se han detectado {len(tareas_completadas)} sesiones ya completadas.")
-        except Exception as e:
-            st.error("Error al leer el archivo. Asegúrate de que es el .csv original.")
-
-    # B) EXTRAER HUECOS REALES FUTUROS
-    huecos = []
-    fecha_actual = fecha_inicio
-    while fecha_actual <= fecha_fin:
-        dia_idx = fecha_actual.weekday()
-        if turnos_elegidos.iloc[dia_idx]['Mañana']:
-            huecos.append({'fecha': fecha_actual, 'turno': 'Mañana', 'tarea': None})
-        if turnos_elegidos.iloc[dia_idx]['Tarde']:
-            huecos.append({'fecha': fecha_actual, 'turno': 'Tarde', 'tarea': None})
-        fecha_actual += timedelta(days=1)
-        
-    turnos_totales = len(huecos)
-    turnos_necesarios = (num_temas * 5) - len(tareas_completadas)
-    
-    # C) VALIDACIÓN DE VIABILIDAD
-    if turnos_totales < turnos_necesarios:
-        deficit = turnos_necesarios - turnos_totales
-        if deficit <= num_temas:
-            st.warning(f"⚠️ Ajustado: Faltan {deficit} turnos. Se generará el calendario pero algunos simulacros quedarán fuera.")
-        else:
-            st.error(f"❌ Inviable: Tienes {turnos_totales} turnos y necesitas {turnos_necesarios} para acabar lo que te falta. Amplía la fecha o reduce temas.")
-            st.stop()
-    else:
-        st.success(f"✅ ¡Planificación viable! Tienes {turnos_totales} turnos libres para encajar las {turnos_necesarios} sesiones restantes.")
-
-    # D) MOTOR DE ASIGNACIÓN INTELIGENTE (Curva del Olvido)
-    fases_olvido = [('Preparación', 0), ('Estudio', 0), ('Repaso 1', 1), ('Repaso 2', 7), ('Simulacro', 15)]
-    tareas_para_csv = []
-
-    # Reconstruimos el historial para el nuevo CSV
-    for t_str, f_obj in tareas_completadas.items():
-        tareas_para_csv.append({'Fecha': f_obj.strftime("%d/%m/%Y"), 'Turno': '---', 'Tarea': t_str, 'Completado': 'Sí'})
-
-    # Asignamos las nuevas fechas
-    for tema in temas_seleccionados:
-        fecha_base = None
-        for nombre_fase, gap_dias in fases_olvido:
-            tarea_str = f"T{tema} - {nombre_fase}"
-            
-            if tarea_str in tareas_completadas:
-                fecha_base = tareas_completadas[tarea_str] # Ya se hizo, actualizamos ancla
-            else:
-                if fecha_base is None:
-                    fecha_min = fecha_inicio
-                else:
-                    fecha_min = max(fecha_inicio, fecha_base + timedelta(days=gap_dias))
-
-                for hueco in huecos:
-                    if hueco['tarea'] is None and hueco['fecha'] >= fecha_min:
-                        hueco['tarea'] = tarea_str
-                        fecha_base = hueco['fecha']
-                        tareas_para_csv.append({'Fecha': hueco['fecha'].strftime("%d/%m/%Y"), 'Turno': hueco['turno'], 'Tarea': tarea_str, 'Completado': None})
-                        break
-
-    # E) PREPARACIÓN DE VISUALES (HTML y Diccionarios)
-    task_lookup = {}
-    for h in huecos:
-        d_key = h['fecha']
-        if d_key not in task_lookup:
-            task_lookup[d_key] = {"Mañana": "Libre", "Tarde": "Libre"}
-        if h['tarea'] is not None:
-            task_lookup[d_key][h['turno']] = h['tarea']
-
-    meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-    
-    html_cal = """
-    <style>
-    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin-bottom: 40px;}
-    .cal-header { font-weight: bold; text-align: center; background-color: #f0f2f6; padding: 8px; border-radius: 5px;}
-    .cal-day { border: 1px solid #e0e0e0; border-radius: 5px; padding: 5px; min-height: 110px; display: flex; flex-direction: column; background-color: white;}
-    .cal-date { font-weight: bold; font-size: 14px; text-align: right; border-bottom: 1px solid #eee; margin-bottom: 5px; padding-bottom: 2px; color: #333;}
-    .cal-m { background-color: #e8f4f8; font-size: 11px; padding: 4px; margin-bottom: 4px; border-radius: 3px; flex: 1; color: #0d47a1;}
-    .cal-t { background-color: #fdf5e6; font-size: 11px; padding: 4px; border-radius: 3px; flex: 1; color: #e65100;}
-    .cal-empty { background-color: #f8f9fa; border: 1px dashed #ddd; }
-    .cal-title { font-family: sans-serif; color: #333; border-bottom: 2px solid #333; padding-bottom: 5px;}
-    </style>
-    """
-
-    fechas_rango = [fecha_inicio + timedelta(days=x) for x in range((fecha_fin - fecha_inicio).days + 1)]
-    if fechas_rango:
-        meses_unicos = sorted(list(set((d.year, d.month) for d in fechas_rango)))
-        for year, month in meses_unicos:
-            html_cal += f"<h2 class='cal-title'>{meses_nombres[month-1]} {year}</h2><div class='cal-grid'>"
-            for d in ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]:
-                html_cal += f'<div class="cal-header">{d}</div>'
-            cal_matrix = calendar.monthcalendar(year, month)
-            for week in cal_matrix:
-                for day in week:
-                    if day == 0:
-                        html_cal += '<div class="cal-day cal-empty"></div>'
-                    else:
-                        d_obj = date(year, month, day)
-                        if d_obj < fecha_inicio or d_obj > fecha_fin:
-                            html_cal += f'<div class="cal-day cal-empty"><div class="cal-date" style="color:#aaa;">{day}</div></div>'
-                        else:
-                            t_man = task_lookup.get(d_obj, {}).get("Mañana", "Libre")
-                            t_tar = task_lookup.get(d_obj, {}).get("Tarde", "Libre")
-                            op_m = "opacity: 0.4;" if t_man == "Libre" else ""
-                            op_t = "opacity: 0.4;" if t_tar == "Libre" else ""
-                            t_man_html = f'<div class="cal-m" style="{op_m}">☀️ {t_man}</div>'
-                            t_tar_html = f'<div class="cal-t" style="{op_t}">🌙 {t_tar}</div>'
-                            html_cal += f'<div class="cal-day"><div class="cal-date">{day}</div>{t_man_html}{t_tar_html}</div>'
-            html_cal += '</div>'
-
-        st.markdown(html_cal, unsafe_allow_html=True)
-        
-        # F) BOTONES DE DESCARGA (PDF y CSV)
-        html_export = f"<html><head><meta charset='utf-8'><title>Calendario Estudio</title>{html_cal}</head><body style='font-family: sans-serif; padding: 20px;' onload='window.print()'><h1>Planificación de Estudio</h1>{html_cal}</body></html>"
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.download_button(label="📥 Descargar Calendario para PDF", data=html_export, file_name="calendario_estudio.html", mime="text/html")
-        
-        with col2:
-            # Ordenamos el CSV por fecha antes de exportarlo
-            df_export = pd.DataFrame(tareas_para_csv)
-            df_export['Fecha_dt'] = pd.to_datetime(df_export['Fecha'], format="%d/%m/%Y")
-            df_export = df_export.sort_values('Fecha_dt').drop(columns=['Fecha_dt'])
-            csv_data = df_export.to_csv(index=False, sep=';').encode('utf-8-sig') # utf-8-sig asegura que los acentos en Excel se vean bien
-            
-            st.download_button(label="📊 Descargar Excel de Seguimiento (.csv)", data=csv_data, file_name="seguimiento_estudio.csv", mime="text/csv")
-            import streamlit as st
-import pandas as pd
-import calendar
-from datetime import date, timedelta, datetime
-
-st.set_page_config(page_title="Planificador de Estudio", layout="wide")
-st.title("📚 Planificador de estudio")
-
-# --- PANEL LATERAL ---
-with st.sidebar:
-    st.header("1. Cargar progreso (Opcional)")
-    st.info("Sube tu archivo .csv actualizado para recalcular el calendario.")
-    archivo_progreso = st.file_uploader("Archivo de seguimiento", type=["csv"])
-    
-    st.header("2. Parámetros del Alumno")
     lista_completa = list(range(1, 75))
     temas_seleccionados = st.multiselect(
         "Selecciona los temas a estudiar:", 
@@ -218,7 +34,6 @@ with st.sidebar:
     })
     turnos_elegidos = st.data_editor(tabla_turnos, hide_index=True, use_container_width=True)
     
-    # NUEVO: Días festivos o exclusiones
     st.markdown("---")
     st.subheader("4. Días Libres o Festivos")
     st.info("Escribe las fechas en las que NO vas a estudiar, separadas por comas (Ej: 25/12/2026, 01/01/2027)")
@@ -227,27 +42,27 @@ with st.sidebar:
     st.markdown("---")
     generar = st.button("Generar / Recalcular Calendario", type="primary")
 
+
 # --- ALGORITMO PRINCIPAL ---
 if generar:
     if num_temas == 0:
         st.error("⚠️ Debes seleccionar al menos un tema.")
         st.stop()
 
-    # NUEVO: Convertir el texto de festivos a fechas reales para el motor
+    # Convertir el texto de festivos a fechas reales para el motor
     fechas_excluidas = []
     if fechas_excluidas_input:
         for f in fechas_excluidas_input.split(','):
             try:
-                # Limpiamos espacios y convertimos a fecha
                 fechas_excluidas.append(datetime.strptime(f.strip(), "%d/%m/%Y").date())
             except:
-                pass # Si el usuario escribe mal una fecha, la ignoramos para que no se rompa la app
+                pass # Si hay error tipográfico, lo ignora
 
     # A) PROCESAR EL ARCHIVO SUBIDO
     tareas_completadas = {}
     if archivo_progreso is not None:
         try:
-            df_prog = pd.read_csv(archivo_progreso, sep=';') # Leemos con punto y coma por si acaso
+            df_prog = pd.read_csv(archivo_progreso, sep=';')
             df_prog = df_prog[df_prog['Completado'].notna()] 
             for index, row in df_prog.iterrows():
                 fecha_str = str(row['Fecha'])
@@ -258,13 +73,12 @@ if generar:
                 tareas_completadas[row['Tarea']] = f_obj
             st.success(f"📂 Archivo cargado: Se han detectado {len(tareas_completadas)} sesiones ya completadas.")
         except Exception as e:
-            st.error("Error al leer el archivo. Asegúrate de que es el .csv original.")
+            st.error("Error al leer el archivo. Asegúrate de que es el .csv original y está separado por punto y coma.")
 
     # B) EXTRAER HUECOS REALES FUTUROS (Saltando los festivos)
     huecos = []
     fecha_actual = fecha_inicio
     while fecha_actual <= fecha_fin:
-        # Condición mágica: Solo añadimos huecos si la fecha no está en la lista de excluidas
         if fecha_actual not in fechas_excluidas:
             dia_idx = fecha_actual.weekday()
             if turnos_elegidos.iloc[dia_idx]['Mañana']:
@@ -282,7 +96,7 @@ if generar:
         if deficit <= num_temas:
             st.warning(f"⚠️ Ajustado: Faltan {deficit} turnos. Se generará el calendario pero algunos simulacros quedarán fuera.")
         else:
-            st.error(f"❌ Inviable: Tienes {turnos_totales} turnos libres y necesitas {turnos_necesarios} para acabar lo que te falta. Amplía la fecha o reduce temas.")
+            st.error(f"❌ Inviable: Tienes {turnos_totales} turnos libres y necesitas {turnos_necesarios} para acabar. Amplía la fecha o reduce temas.")
             st.stop()
     else:
         st.success(f"✅ ¡Planificación viable! Tienes {turnos_totales} turnos libres para encajar las {turnos_necesarios} sesiones restantes.")
@@ -356,7 +170,6 @@ if generar:
                         if d_obj < fecha_inicio or d_obj > fecha_fin:
                             html_cal += f'<div class="cal-day cal-empty"><div class="cal-date" style="color:#aaa;">{day}</div></div>'
                         elif d_obj in fechas_excluidas:
-                            # Si es un día festivo, lo pintamos de rojo suave
                             html_cal += f'<div class="cal-day cal-festivo"><div class="cal-date" style="color:#d32f2f;">{day}</div><div style="text-align:center; margin-top:20px; color:#d32f2f; font-size:12px;">🌴 Festivo</div></div>'
                         else:
                             t_man = task_lookup.get(d_obj, {}).get("Mañana", "Libre")
