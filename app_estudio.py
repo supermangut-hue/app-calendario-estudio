@@ -9,7 +9,13 @@ st.title("📚 Calendario de estudio")
 # --- PANEL LATERAL ---
 with st.sidebar:
     st.header("Parámetros del Alumno")
-    num_temas = st.number_input("Número de temas a estudiar", min_value=1, max_value=70, value=40)
+    lista_completa = list(range(1, 75)) # Del 1 al 74
+    temas_seleccionados = st.multiselect(
+        "Selecciona los temas que vas a estudiar:", 
+        options=lista_completa, 
+        default=[1, 2, 3] # Temas marcados por defecto para que no salga vacío
+    )
+    num_temas = len(temas_seleccionados) # Contamos cuántos han elegido para la validación matemática
     fecha_inicio = st.date_input("Fecha de inicio", value=date.today())
     fecha_fin = st.date_input("Fecha límite", value=date(2027, 6, 1))
     
@@ -56,7 +62,7 @@ if generar:
     # 3. Asignación (Curva del Olvido)
     fases_olvido = [('Preparación', 0), ('Estudio', 0), ('Repaso 1', 1), ('Repaso 2', 7), ('Simulacro', 15)]
     
-    for tema in range(1, num_temas + 1):
+    for tema in temas_seleccionados:
         fecha_minima_fase = fecha_inicio
         for nombre_fase, gap_dias in fases_olvido:
             fecha_minima_fase += timedelta(days=gap_dias)
